@@ -1,0 +1,22 @@
+# Core dependencies for embedding model finetuning
+torch>=2.0.0
+transformers>=4.30.0
+sentence-transformers>=2.2.0
+peft>=0.5.0
+accelerate>=0.20.0
+
+# Optimization and efficiency
+bitsandbytes>=0.41.0  # For 4-bit quantization if needed
+datasets>=2.14.0
+
+# Utilities
+tqdm>=4.65.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Database for RAG
+chromadb>=0.4.0
+
+# Development tools
+ipdb>=0.13.13
+jupyter>=1.0.0

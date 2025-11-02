@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/d/datasets/KorQuAD/**)",
+      "Bash(python3:*)",
+      "Bash(cat:*)",
+      "Bash(tree:*)",
+      "Bash(echo:*)",
+      "Bash(powershell.exe:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
