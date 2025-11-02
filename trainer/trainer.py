@@ -87,14 +87,15 @@ class EmbeddingTrainer:
                     self.global_step_counter[0]
                 )
 
-                # Log gradient histogram (only if gradient has non-zero variance)
-                # This prevents "empty histogram" errors from all-zero gradients
-                if grad.std() > 1e-10:  # Check for non-trivial variance
-                    self.writer.add_histogram(
-                        f'gradients/{module.__class__.__name__}_weight',
-                        grad,
-                        self.global_step_counter[0]
-                    )
+                # Log gradient histogram (only if enabled and gradient has non-zero variance)
+                # Histograms are expensive (GPU-CPU sync + computation), can cause latency
+                if self.config.log_gradient_histograms:
+                    if grad.std() > 1e-10:  # Check for non-trivial variance
+                        self.writer.add_histogram(
+                            f'gradients/{module.__class__.__name__}_weight',
+                            grad,
+                            self.global_step_counter[0]
+                        )
 
         # Register hooks for key modules
         auto_model = self.model[0].auto_model
@@ -282,27 +283,63 @@ class EmbeddingTrainer:
             global_step: Current global step
 
         Returns:
-            eval_score: Evaluation score
+            eval_results: Evaluation results (dict or scalar)
         """
         print(f"\n\nEvaluating at step {global_step}...")
         self.model.eval()
-        eval_score = evaluator(self.model)
+        eval_results = evaluator(self.model)
         self.model.train()
 
-        # Log evaluation metrics
-        self.writer.add_scalar('eval/score', eval_score, global_step)
+        # Handle dict or scalar return value
+        if isinstance(eval_results, dict):
+            # InformationRetrievalEvaluator returns a dict of metrics
+            # Primary metric is typically the first key (e.g., 'ndcg@10' or similar)
+
+            # Log all metrics to TensorBoard
+            for metric_name, metric_value in eval_results.items():
+                self.writer.add_scalar(f'eval/{metric_name}', metric_value, global_step)
+
+            # Use the primary metric for model saving (typically the first one)
+            # Common metrics: 'ndcg@10', 'map', 'recall@10', 'mrr@10'
+            primary_metrics = ['ndcg@10', 'map', 'recall@10', 'mrr@10', 'cos_sim-ndcg@10']
+            eval_score = None
+
+            # Try to find a common primary metric
+            for metric in primary_metrics:
+                if metric in eval_results:
+                    eval_score = eval_results[metric]
+                    break
+
+            # If no common metric found, use the first one
+            if eval_score is None and eval_results:
+                metric_name = list(eval_results.keys())[0]
+                eval_score = eval_results[metric_name]
+                print(f"Using {metric_name} as primary metric")
+
+            # Display all metrics
+            print(f"\nEvaluation Results:")
+            for metric_name, metric_value in eval_results.items():
+                print(f"  {metric_name}: {metric_value:.4f}")
+        else:
+            # Single scalar value
+            eval_score = eval_results
+            self.writer.add_scalar('eval/score', eval_score, global_step)
+            print(f"\nEvaluation Score: {eval_score:.4f}")
 
         # Save best model
-        if eval_score > self.best_score:
+        if eval_score is not None and eval_score > self.best_score:
             self.best_score = eval_score
-            print(f"New best score: {self.best_score:.4f} - Saving model...")
+            print(f"\n✅ New best score: {self.best_score:.4f} - Saving model...")
             self.model.save(self.config.output_dir)
 
             # Save LoRA weights separately
             lora_output_path = os.path.join(self.config.output_dir, "lora_weights")
             self.model[0].auto_model.save_pretrained(lora_output_path)
+            print(f"Model saved to: {self.config.output_dir}")
+        else:
+            print(f"\nCurrent best score: {self.best_score:.4f}")
 
-        return eval_score
+        return eval_results
 
     def train(self, train_dataloader: DataLoader, train_loss, evaluator):
         """
@@ -403,14 +440,27 @@ class EmbeddingTrainer:
             evaluator: Evaluation function
 
         Returns:
-            eval_score: Evaluation score
+            eval_results: Evaluation results (dict or scalar)
         """
         print("\nRunning final evaluation...")
         self.model.eval()
-        eval_score = evaluator(self.model)
+        eval_results = evaluator(self.model)
 
-        if self.writer:
-            self.writer.add_scalar('eval/final_score', eval_score, 0)
+        # Handle dict or scalar return value
+        if isinstance(eval_results, dict):
+            # Log all metrics to TensorBoard
+            if self.writer:
+                for metric_name, metric_value in eval_results.items():
+                    self.writer.add_scalar(f'eval/final_{metric_name}', metric_value, 0)
 
-        print(f"Final validation score: {eval_score}")
-        return eval_score
+            # Display all metrics
+            print(f"\nFinal Evaluation Results:")
+            for metric_name, metric_value in eval_results.items():
+                print(f"  {metric_name}: {metric_value:.4f}")
+        else:
+            # Single scalar value
+            if self.writer:
+                self.writer.add_scalar('eval/final_score', eval_results, 0)
+            print(f"\nFinal validation score: {eval_results:.4f}")
+
+        return eval_results

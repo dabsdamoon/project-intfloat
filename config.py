@@ -43,6 +43,7 @@ class TrainingConfig:
     log_dir: str = "./logs/tensorboard"
     log_every_n_steps: int = 10  # Log loss every N steps
     log_gradients: bool = True  # Log gradient statistics
+    log_gradient_histograms: bool = False  # Log gradient histograms (expensive, causes latency)
 
     # Evaluation settings
     eval_samples: int = 1000  # Number of validation samples for evaluation
@@ -80,6 +81,7 @@ class TrainingConfig:
             "log_dir": self.log_dir,
             "log_every_n_steps": self.log_every_n_steps,
             "log_gradients": self.log_gradients,
+            "log_gradient_histograms": self.log_gradient_histograms,
             "eval_samples": self.eval_samples,
             "num_workers": self.num_workers,
             "fp16": self.fp16,
@@ -124,6 +126,7 @@ class TrainingConfig:
         print(f"  Log directory: {self.log_dir}")
         print(f"  Log every N steps: {self.log_every_n_steps}")
         print(f"  Log gradients: {self.log_gradients}")
+        print(f"  Log gradient histograms: {self.log_gradient_histograms}")
 
         print(f"\n⚙️ System Settings:")
         print(f"  Data loader workers: {self.num_workers}")
