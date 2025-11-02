@@ -39,11 +39,16 @@ class TrainingConfig:
     checkpoint_dir: str = "./checkpoints"
     save_steps: int = 1000
 
+    # TensorBoard logging settings
+    log_dir: str = "./logs/tensorboard"
+    log_every_n_steps: int = 10  # Log loss every N steps
+    log_gradients: bool = True  # Log gradient statistics
+
     # Evaluation settings
     eval_samples: int = 1000  # Number of validation samples for evaluation
 
     # System settings
-    num_workers: int = 4
+    num_workers: int = 4  # Number of workers for DataLoader multiprocessing
     fp16: bool = True  # Use mixed precision for memory efficiency
     gradient_checkpointing: bool = True
 
@@ -72,6 +77,9 @@ class TrainingConfig:
             "output_dir": self.output_dir,
             "checkpoint_dir": self.checkpoint_dir,
             "save_steps": self.save_steps,
+            "log_dir": self.log_dir,
+            "log_every_n_steps": self.log_every_n_steps,
+            "log_gradients": self.log_gradients,
             "eval_samples": self.eval_samples,
             "num_workers": self.num_workers,
             "fp16": self.fp16,
@@ -111,6 +119,11 @@ class TrainingConfig:
         print(f"  Output directory: {self.output_dir}")
         print(f"  Checkpoint directory: {self.checkpoint_dir}")
         print(f"  Save steps: {self.save_steps}")
+
+        print(f"\n📊 TensorBoard Settings:")
+        print(f"  Log directory: {self.log_dir}")
+        print(f"  Log every N steps: {self.log_every_n_steps}")
+        print(f"  Log gradients: {self.log_gradients}")
 
         print(f"\n⚙️ System Settings:")
         print(f"  Data loader workers: {self.num_workers}")
