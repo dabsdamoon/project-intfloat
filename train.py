@@ -8,17 +8,69 @@ Uses LoRA/PEFT for efficient training on 8GB GPU
 import os
 import sys
 import torch
+import re
 from typing import List, Tuple
 from tqdm import tqdm
+from html import unescape
 
 from sentence_transformers import SentenceTransformer, InputExample, losses
-from sentence_transformers.evaluation import InformationRetrievalEvaluator
 from torch.utils.data import DataLoader
-from peft import get_peft_model, LoraConfig, TaskType
 
 # Import project modules
 from config import TrainingConfig
 from dataloader.loader import load_entire_dataset
+from trainer import EmbeddingTrainer, setup_lora_model
+
+
+def clean_html_text(text: str) -> str:
+    """
+    Clean HTML markup from text while preserving content.
+
+    Args:
+        text: Raw text that may contain HTML
+
+    Returns:
+        Cleaned text with HTML removed
+    """
+    if not text:
+        return ""
+
+    # Remove DOCTYPE and html/head/body tags
+    text = re.sub(r'<!DOCTYPE[^>]*>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'<html[^>]*>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'</html>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'<head[^>]*>.*?</head>', '', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'<body[^>]*>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'</body>', '', text, flags=re.IGNORECASE)
+
+    # Remove script and style tags with their content
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # Remove all HTML tags but keep the content
+    text = re.sub(r'<[^>]+>', '', text)
+
+    # Decode HTML entities (e.g., &nbsp; → space, &lt; → <)
+    text = unescape(text)
+
+    # Clean up whitespace
+    text = re.sub(r'\n\s*\n', '\n\n', text)  # Remove excessive blank lines
+    text = re.sub(r'[ \t]+', ' ', text)  # Normalize spaces
+    text = text.strip()
+
+    return text
+
+
+def collate_input_examples(batch):
+    """
+    Custom collate function for InputExample objects.
+
+    Instead of trying to stack InputExample objects (which fails with default collate),
+    we just return them as a list. The model's _prepare_batch() will handle tokenization.
+
+    This allows us to use num_workers > 0 for parallel data loading.
+    """
+    return batch
 
 
 def prepare_training_data(dataset: dict, config: TrainingConfig) -> Tuple[List[InputExample], List[InputExample]]:
@@ -50,25 +102,39 @@ def prepare_training_data(dataset: dict, config: TrainingConfig) -> Tuple[List[I
             if total_qas >= config.max_samples:
                 break
         articles = limited_articles
-
+    
     # Convert to training examples
     for article in tqdm(articles, desc="Processing articles"):
-        context = article.get('context', '')
-        title = article.get('title', '')
-
-        # Combine title and context for better retrieval
-        full_context = f"{title}\n{context}" if title else context
-
         for qa in article.get('qas', []):
             question = qa.get('question', '')
+            answer_obj = qa.get('answer', {})
 
-            if question and full_context:
-                # E5 models use instruction prefixes
-                # Query gets "query: " prefix, passage gets "passage: " prefix
-                example = InputExample(
-                    texts=[f"query: {question}", f"passage: {full_context}"]
-                )
-                examples.append(example)
+            # Extract answer text from answer object
+            # KorQuAD answer structure: {'text': 'answer text', 'answer_start': position}
+            if isinstance(answer_obj, dict):
+                answer = answer_obj.get('text', '')
+            elif isinstance(answer_obj, str):
+                answer = answer_obj
+            else:
+                answer = ''
+
+            if not question or not answer:
+                continue
+
+            # Clean HTML from answer text (Wikipedia data may contain HTML markup)
+            answer = clean_html_text(answer)
+
+            # Skip if answer is empty after cleaning
+            if not answer:
+                continue
+
+            # Use Question → Answer pairs (verified, precise)
+            # This avoids false negative problem in contrastive learning
+            # and provides strongest supervision signal
+            example = InputExample(
+                texts=[f"query: {question}", f"passage: {answer}"]
+            )
+            examples.append(example)
 
     print(f"Created {len(examples)} training examples")
 
@@ -81,41 +147,6 @@ def prepare_training_data(dataset: dict, config: TrainingConfig) -> Tuple[List[I
     print(f"Validation examples: {len(val_examples)}")
 
     return train_examples, val_examples
-
-
-def setup_lora_model(base_model: SentenceTransformer, config: TrainingConfig):
-    """
-    Configure LoRA for the base model
-
-    For sentence-transformers, we need to apply LoRA to the underlying transformer
-    """
-    print("\nConfiguring LoRA for efficient training...")
-
-    # Get the base transformer model from sentence-transformers
-    auto_model = base_model[0].auto_model
-
-    # Configure LoRA
-    lora_config = LoraConfig(
-        r=config.lora_r,
-        lora_alpha=config.lora_alpha,
-        target_modules=config.target_modules,
-        lora_dropout=config.lora_dropout,
-        bias="none",
-        task_type=TaskType.FEATURE_EXTRACTION
-    )
-
-    # Apply LoRA to the model
-    peft_model = get_peft_model(auto_model, lora_config)
-
-    # Replace the base model with LoRA-enhanced version
-    base_model[0].auto_model = peft_model
-
-    # Print trainable parameters
-    trainable_params = sum(p.numel() for p in peft_model.parameters() if p.requires_grad)
-    total_params = sum(p.numel() for p in peft_model.parameters())
-    print(f"Trainable parameters: {trainable_params:,} / {total_params:,} ({100 * trainable_params / total_params:.2f}%)")
-
-    return base_model
 
 
 def create_evaluation_data(val_examples: List[InputExample], config: TrainingConfig):
@@ -159,9 +190,9 @@ def main():
     # Initialize configuration
     config = TrainingConfig()
 
-    # Create output directories
-    os.makedirs(config.output_dir, exist_ok=True)
-    os.makedirs(config.checkpoint_dir, exist_ok=True)
+    # Create log directory for TensorBoard
+    # Note: Model directory will be created automatically within each run
+    os.makedirs(config.log_dir, exist_ok=True)
 
     # Print header
     print("\n" + "=" * 60)
@@ -179,7 +210,7 @@ def main():
     config.print_summary()
 
     # Step 1: Load KorQuAD dataset
-    print("\n[1/5] Loading KorQuAD dataset...")
+    print("\n[1/6] Loading KorQuAD dataset...")
     dataset = load_entire_dataset(config.dataset_root, verbose=True)
 
     if dataset is None:
@@ -192,11 +223,11 @@ def main():
     print(f"  Total QA pairs: {dataset['total_qas']}")
 
     # Step 2: Prepare training data
-    print("\n[2/5] Preparing training data...")
+    print("\n[2/6] Preparing training data...")
     train_examples, val_examples = prepare_training_data(dataset, config)
 
     # Step 3: Load base model
-    print("\n[3/5] Loading base model...")
+    print("\n[3/6] Loading base model...")
     model = SentenceTransformer(config.model_name)
 
     # Set max sequence length
@@ -208,73 +239,50 @@ def main():
         print("Gradient checkpointing enabled")
 
     # Step 4: Apply LoRA
-    print("\n[4/5] Applying LoRA...")
+    print("\n[4/6] Applying LoRA...")
     model = setup_lora_model(model, config)
 
     # Step 5: Setup training
-    print("\n[5/5] Setting up training...")
+    print("\n[5/6] Setting up training...")
 
-    # Create DataLoader
+    # Create DataLoader with custom collate function
+    # The collate function just returns InputExample objects as a list,
+    # allowing multiprocessing while deferring tokenization to the model
     train_dataloader = DataLoader(
         train_examples,
         shuffle=True,
         batch_size=config.batch_size,
-        num_workers=config.num_workers
+        num_workers=config.num_workers,
+        collate_fn=collate_input_examples  # Custom collate to handle InputExample
     )
 
     # Use MultipleNegativesRankingLoss - excellent for embedding training
     train_loss = losses.MultipleNegativesRankingLoss(model)
 
-    # Setup evaluator
+    # Create evaluation data
     queries, corpus, relevant_docs = create_evaluation_data(val_examples, config)
-    evaluator = InformationRetrievalEvaluator(
+
+    # Initialize trainer
+    print("\n[6/6] Initializing trainer...")
+    trainer = EmbeddingTrainer(model=model, config=config)
+
+    # Create evaluator
+    evaluator = trainer._create_evaluator(
         queries=queries,
         corpus=corpus,
         relevant_docs=relevant_docs,
-        name="korquad-validation",
-        show_progress_bar=True
+        name="korquad-validation"
     )
 
-    # Calculate total steps
-    steps_per_epoch = len(train_dataloader)
-    total_steps = steps_per_epoch * config.num_epochs
-
-    print(f"\n📈 Training Steps:")
-    print(f"  Steps per epoch: {steps_per_epoch:,}")
-    print(f"  Total steps: {total_steps:,}")
-
-    # Start training
-    print("\n" + "=" * 60)
-    print("Starting training...")
-    print("=" * 60 + "\n")
-
-    model.fit(
-        train_objectives=[(train_dataloader, train_loss)],
-        evaluator=evaluator,
-        epochs=config.num_epochs,
-        warmup_steps=config.warmup_steps,
-        optimizer_params={'lr': config.learning_rate},
-        output_path=config.output_dir,
-        evaluation_steps=config.save_steps,
-        save_best_model=True,
-        show_progress_bar=True,
-        use_amp=config.fp16  # Automatic Mixed Precision
+    # Start training with TensorBoard logging
+    best_score = trainer.train(
+        train_dataloader=train_dataloader,
+        train_loss=train_loss,
+        evaluator=evaluator
     )
-
-    print("\n" + "=" * 60)
-    print("Training completed!")
-    print("=" * 60)
-    print(f"Model saved to: {config.output_dir}")
-
-    # Save LoRA weights separately for easy loading
-    lora_output_path = os.path.join(config.output_dir, "lora_weights")
-    model[0].auto_model.save_pretrained(lora_output_path)
-    print(f"LoRA weights saved to: {lora_output_path}")
 
     # Final evaluation
-    print("\nRunning final evaluation...")
-    final_score = evaluator(model)
-    print(f"Final validation score: {final_score}")
+    final_score = trainer.evaluate(evaluator)
 
     return model
 
