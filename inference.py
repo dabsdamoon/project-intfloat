@@ -247,14 +247,16 @@ class E5KorQuADInference:
         return all_results
 
 
-def example_single_query():
+def example_single_query(model_path=None):
     """Example: Single query search"""
     print("\n" + "=" * 60)
     print("Example 1: Single Query Search")
     print("=" * 60)
 
     # Initialize model
-    model = E5KorQuADInference(model_path="./models/finetuned-e5-small-korquad")
+    if model_path is None:
+        model_path = "./models/finetuned-e5-small-korquad"  # Fallback for backwards compatibility
+    model = E5KorQuADInference(model_path=model_path)
 
     # Example query and passages
     query = "스위스의 수도는 어디인가?"
@@ -280,14 +282,16 @@ def example_single_query():
         print()
 
 
-def example_batch_search():
+def example_batch_search(model_path=None):
     """Example: Batch query search"""
     print("\n" + "=" * 60)
     print("Example 2: Batch Query Search")
     print("=" * 60)
 
     # Initialize model
-    model = E5KorQuADInference(model_path="./models/finetuned-e5-small-korquad")
+    if model_path is None:
+        model_path = "./models/finetuned-e5-small-korquad"  # Fallback for backwards compatibility
+    model = E5KorQuADInference(model_path=model_path)
 
     # Multiple queries
     queries = [
@@ -318,14 +322,16 @@ def example_batch_search():
         print()
 
 
-def example_similarity_computation():
+def example_similarity_computation(model_path=None):
     """Example: Direct similarity computation"""
     print("\n" + "=" * 60)
     print("Example 3: Direct Similarity Computation")
     print("=" * 60)
 
     # Initialize model
-    model = E5KorQuADInference(model_path="./models/finetuned-e5-small-korquad")
+    if model_path is None:
+        model_path = "./models/finetuned-e5-small-korquad"  # Fallback for backwards compatibility
+    model = E5KorQuADInference(model_path=model_path)
 
     # Encode query and passages separately
     query = "한국의 수도는?"
@@ -359,21 +365,47 @@ if __name__ == "__main__":
     Run all examples
 
     Make sure you have trained the model first using train.py
-    The model should be saved at: ./models/finetuned-e5-small-korquad
+    Models are saved in: ./logs/tensorboard/run_YYYYMMDD_HHMMSS/model
     """
 
-    # Check if model exists
-    model_path = "./models/finetuned-e5-small-korquad"
-    if not os.path.exists(model_path):
-        print(f"Error: Model not found at {model_path}")
-        print("Please train the model first using train.py")
+    # Find the latest trained model
+    tensorboard_dir = "./logs/tensorboard"
+
+    if not os.path.exists(tensorboard_dir):
+        print(f"Error: TensorBoard directory not found at {tensorboard_dir}")
+        print("Please train the model first using: python train.py")
         exit(1)
+
+    # Get all run directories sorted by modification time (newest first)
+    run_dirs = [
+        os.path.join(tensorboard_dir, d)
+        for d in os.listdir(tensorboard_dir)
+        if os.path.isdir(os.path.join(tensorboard_dir, d)) and d.startswith("run_")
+    ]
+
+    if not run_dirs:
+        print(f"Error: No training runs found in {tensorboard_dir}")
+        print("Please train the model first using: python train.py")
+        exit(1)
+
+    # Sort by modification time (newest first)
+    run_dirs.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    latest_run = run_dirs[0]
+    model_path = os.path.join(latest_run, "model")
+
+    if not os.path.exists(model_path):
+        print(f"Error: Model not found in latest run at {model_path}")
+        print(f"Found run directory: {latest_run}")
+        print("Please ensure training completed successfully")
+        exit(1)
+
+    print(f"Using model from: {model_path}")
 
     # Run examples
     try:
-        example_single_query()
-        example_batch_search()
-        example_similarity_computation()
+        example_single_query(model_path)
+        example_batch_search(model_path)
+        example_similarity_computation(model_path)
 
         print("\n" + "=" * 60)
         print("All examples completed successfully!")

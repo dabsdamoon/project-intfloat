@@ -190,9 +190,8 @@ def main():
     # Initialize configuration
     config = TrainingConfig()
 
-    # Create output directories
-    os.makedirs(config.output_dir, exist_ok=True)
-    os.makedirs(config.checkpoint_dir, exist_ok=True)
+    # Create log directory for TensorBoard
+    # Note: Model directory will be created automatically within each run
     os.makedirs(config.log_dir, exist_ok=True)
 
     # Print header

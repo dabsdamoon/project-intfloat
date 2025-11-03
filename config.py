@@ -28,16 +28,15 @@ class TrainingConfig:
     target_modules: Optional[List[str]] = None  # Will auto-detect for e5 model
 
     # Training settings - optimized for 8GB GPU
-    batch_size: int = 16  # Batch size per device
+    batch_size: int = 32  # Batch size per device
     num_epochs: int = 3
     learning_rate: float = 2e-5
     warmup_steps: int = 500
     max_seq_length: int = 256  # Shorter sequences = less memory
 
     # Output settings
-    output_dir: str = "./models/finetuned-e5-small-korquad"
-    checkpoint_dir: str = "./checkpoints"
-    save_steps: int = 1000
+    # Note: Models are saved to logs/tensorboard/{run_timestamp}/model/
+    save_steps: int = 1000  # Evaluate and save model every N steps
 
     # TensorBoard logging settings
     log_dir: str = "./logs/tensorboard"
@@ -75,8 +74,6 @@ class TrainingConfig:
             "learning_rate": self.learning_rate,
             "warmup_steps": self.warmup_steps,
             "max_seq_length": self.max_seq_length,
-            "output_dir": self.output_dir,
-            "checkpoint_dir": self.checkpoint_dir,
             "save_steps": self.save_steps,
             "log_dir": self.log_dir,
             "log_every_n_steps": self.log_every_n_steps,
@@ -118,8 +115,7 @@ class TrainingConfig:
         print(f"  Gradient checkpointing: {self.gradient_checkpointing}")
 
         print(f"\n💾 Output Settings:")
-        print(f"  Output directory: {self.output_dir}")
-        print(f"  Checkpoint directory: {self.checkpoint_dir}")
+        print(f"  Model save location: logs/tensorboard/<run_timestamp>/model/")
         print(f"  Save steps: {self.save_steps}")
 
         print(f"\n📊 TensorBoard Settings:")

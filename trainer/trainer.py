@@ -5,6 +5,7 @@ Trainer class for embedding model finetuning with TensorBoard logging
 """
 
 import os
+import json
 import torch
 from typing import List
 from tqdm import tqdm
@@ -38,6 +39,7 @@ class EmbeddingTrainer:
         self.writer = None
         self.global_step_counter = [0]
         self.best_score = -1
+        self.model_output_dir = None  # Will be set during training
 
     def _setup_tensorboard(self):
         """Setup TensorBoard writer with timestamped run directory"""
@@ -330,12 +332,12 @@ class EmbeddingTrainer:
         if eval_score is not None and eval_score > self.best_score:
             self.best_score = eval_score
             print(f"\n✅ New best score: {self.best_score:.4f} - Saving model...")
-            self.model.save(self.config.output_dir)
+            self.model.save(self.model_output_dir)
 
             # Save LoRA weights separately
-            lora_output_path = os.path.join(self.config.output_dir, "lora_weights")
+            lora_output_path = os.path.join(self.model_output_dir, "lora_weights")
             self.model[0].auto_model.save_pretrained(lora_output_path)
-            print(f"Model saved to: {self.config.output_dir}")
+            print(f"Model saved to: {self.model_output_dir}")
         else:
             print(f"\nCurrent best score: {self.best_score:.4f}")
 
@@ -356,6 +358,18 @@ class EmbeddingTrainer:
         # Setup TensorBoard
         log_dir = self._setup_tensorboard()
         self._setup_gradient_logging()
+
+        # Setup model output directory within the TensorBoard run directory
+        self.model_output_dir = os.path.join(log_dir, "model")
+        os.makedirs(self.model_output_dir, exist_ok=True)
+
+        # Save training configuration to model directory
+        config_path = os.path.join(self.model_output_dir, "training_config.json")
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(self.config.to_dict(), f, indent=2, ensure_ascii=False)
+
+        print(f"  Model will be saved to: {self.model_output_dir}")
+        print(f"  Training config saved to: training_config.json")
 
         # Setup optimizer and scheduler
         optimizer, scheduler = self._setup_optimizer_and_scheduler(train_dataloader)
@@ -423,12 +437,15 @@ class EmbeddingTrainer:
         print("\n" + "=" * 60)
         print("Training completed!")
         print("=" * 60)
-        print(f"Model saved to: {self.config.output_dir}")
+        print(f"Model saved to: {self.model_output_dir}")
         print(f"Best validation score: {self.best_score:.4f}")
 
         # Close TensorBoard writer
         self.writer.close()
         print(f"\nTensorBoard logs saved to: {log_dir}")
+        print(f"Run directory: {log_dir}")
+        print(f"  ├── events.out.tfevents.* (TensorBoard logs)")
+        print(f"  └── model/ (Saved model)")
 
         return self.best_score
 

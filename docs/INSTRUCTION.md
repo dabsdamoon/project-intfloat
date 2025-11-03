@@ -27,18 +27,43 @@ python train.py
 # Then open: http://localhost:6006
 ```
 
-### Inference
+### Viewing Experiment Configurations
+
+After training, check what hyperparameters were used for each experiment:
+
 ```bash
-# Run built-in examples
-python inference.py
+# List all available models
+python utils/view_config.py
+
+# View config for a specific experiment
+python utils/view_config.py ./logs/tensorboard/run_20251103_143022/model
+
+# Compare two experiments side-by-side
+python utils/view_config.py \
+  ./logs/tensorboard/run_20251103_143022/model \
+  ./logs/tensorboard/run_20251103_150535/model
 ```
 
-**Or use in your code:**
+### Inference
+
+After training, models are saved in the TensorBoard run directory.
+
+**Find your model:**
+```bash
+# List available trained models
+python utils/view_config.py
+
+# Or manually browse:
+ls -lt logs/tensorboard/
+```
+
+**Use the model:**
 ```python
 from inference import E5KorQuADInference
 
-# Load finetuned model
-model = E5KorQuADInference("./models/finetuned-e5-small-korquad")
+# Load finetuned model from your experiment run
+model_path = "./logs/tensorboard/run_20251103_143022/model"
+model = E5KorQuADInference(model_path)
 
 # Search for relevant passages
 results = model.search(
@@ -50,6 +75,12 @@ results = model.search(
 # Display results
 for r in results:
     print(f"Rank {r['rank']}: {r['passage']} (Score: {r['score']:.4f})")
+```
+
+**Or run built-in examples:**
+```bash
+# Edit inference.py to set your model path, then run:
+python inference.py
 ```
 
 **See `docs/UPDATE.md` for detailed documentation.**

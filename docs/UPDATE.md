@@ -3,11 +3,140 @@
 ## 2025-11-03
 
 ### Summary
-Fixed TensorBoard logging issues (gradient histograms, evaluation metrics), added inference script for using the finetuned model, created convenience script for launching TensorBoard, and optimized gradient logging performance.
+Fixed TensorBoard logging issues (gradient histograms, evaluation metrics), added inference script for using the finetuned model, created convenience script for launching TensorBoard, optimized gradient logging performance, organized model saving per experiment run, and removed unnecessary config fields.
 
 ---
 
-### 1. Optimization: Make Gradient Histogram Logging Optional
+### 1. Cleanup: Remove Unnecessary Config Fields and Directories
+
+**Issue**:
+- `config.output_dir` and `config.checkpoint_dir` were defined but no longer used
+- `train.py` was creating these directories in the root even though models now save to run-specific paths
+
+**Changes**:
+- Removed `output_dir` and `checkpoint_dir` from `config.py`
+- Removed directory creation for these paths in `train.py`
+- Updated `to_dict()` and `print_summary()` in `config.py`
+- Updated `utils/view_config.py` categories
+
+**Before**:
+```python
+# config.py
+output_dir: str = "./models/finetuned-e5-small-korquad"  # Not used!
+checkpoint_dir: str = "./checkpoints"                     # Not used!
+
+# train.py
+os.makedirs(config.output_dir, exist_ok=True)      # Creates ./models/
+os.makedirs(config.checkpoint_dir, exist_ok=True)  # Creates ./checkpoints/
+```
+
+**After**:
+```python
+# config.py
+# Removed: output_dir and checkpoint_dir
+save_steps: int = 1000  # Still needed for evaluation frequency
+
+# train.py
+os.makedirs(config.log_dir, exist_ok=True)  # Only create TensorBoard dir
+# Model dir created automatically in trainer: logs/tensorboard/{run}/model/
+```
+
+**Benefits**:
+- ✅ No unused directories created in project root
+- ✅ Cleaner config with only actively used fields
+- ✅ Clear that models save to run-specific directories
+- ✅ Consistent with experiment-based workflow
+
+**Files**: `config.py:37-39, 77-78, 117-119`, `train.py:193-195`, `utils/view_config.py:44`
+
+---
+
+### 2. Feature: Save Models Per Experiment Run
+
+**Purpose**: Organize models by experiment for easy tracking and comparison.
+
+**Implementation**: Models now saved within each TensorBoard run directory instead of a fixed output path.
+
+**Directory Structure**:
+```
+logs/tensorboard/
+├── run_20251103_143022/
+│   ├── events.out.tfevents.*     (TensorBoard logs)
+│   └── model/                     (Saved model for this run)
+│       ├── training_config.json   ← Training hyperparameters (config.py)
+│       ├── config.json            (Model config from SentenceTransformer)
+│       ├── pytorch_model.bin      (Model weights)
+│       ├── tokenizer_config.json  (Tokenizer settings)
+│       └── lora_weights/
+│           ├── adapter_config.json
+│           └── adapter_model.bin
+├── run_20251103_150535/
+│   ├── events.out.tfevents.*
+│   └── model/
+│       └── training_config.json   ← Experiment 2 settings
+└── run_20251103_163412/
+    ├── events.out.tfevents.*
+    └── model/
+        └── training_config.json   ← Experiment 3 settings
+```
+
+**Benefits**:
+- ✅ **Organized experiments**: Each run has its own model + logs + config in one place
+- ✅ **Easy comparison**: Compare models by checking TensorBoard metrics and training configs
+- ✅ **No overwrites**: Different experiments don't overwrite each other's models
+- ✅ **Reproducibility**: Model, training logs, and hyperparameters always together
+- ✅ **Config tracking**: `training_config.json` stores all settings from `config.py`
+- ✅ **Experiment analysis**: Use `view_config.py` to inspect and compare experiments
+
+**Changes**:
+```python
+# trainer/trainer.py - In train() method
+self.model_output_dir = os.path.join(log_dir, "model")
+self.model.save(self.model_output_dir)  # Save to run-specific directory
+```
+
+**Viewing Training Configuration**:
+```bash
+# List all available models
+python utils/view_config.py
+
+# View config for a specific experiment
+python utils/view_config.py ./logs/tensorboard/run_20251103_143022/model
+
+# Compare configs between experiments
+python utils/view_config.py \
+  ./logs/tensorboard/run_20251103_143022/model \
+  ./logs/tensorboard/run_20251103_150535/model
+```
+
+**Example training_config.json**:
+```json
+{
+  "model_name": "intfloat/multilingual-e5-small",
+  "batch_size": 16,
+  "learning_rate": 2e-05,
+  "num_epochs": 3,
+  "lora_r": 8,
+  "lora_alpha": 16,
+  "fp16": true,
+  ...
+}
+```
+
+**Loading Models for Inference**:
+```python
+# After training, find your run directory
+model_path = "./logs/tensorboard/run_20251103_143022/model"
+model = E5KorQuADInference(model_path)
+```
+
+**Files**:
+- `trainer/trainer.py:8, 367-369, 371-372` (save config)
+- `utils/view_config.py` (utility script for viewing/comparing configs)
+
+---
+
+### 3. Optimization: Make Gradient Histogram Logging Optional
 
 **Issue**: Training experiences latency spikes every 10 steps (aligned with `log_every_n_steps`).
 
@@ -44,7 +173,7 @@ if self.config.log_gradient_histograms:  # Only log histograms if explicitly ena
 
 ---
 
-### 2. Fix: Handle Dict Return Value from InformationRetrievalEvaluator
+### 4. Fix: Handle Dict Return Value from InformationRetrievalEvaluator
 
 **Issue**: Training crashed during evaluation with `NotImplementedError: Got <class 'dict'>, but numpy array or torch tensor are expected.`
 
@@ -64,7 +193,7 @@ if self.config.log_gradient_histograms:  # Only log histograms if explicitly ena
 
 ---
 
-### 3. Added: TensorBoard Launch Script
+### 5. Added: TensorBoard Launch Script
 
 **New File**: `run_tensorboard.sh` - Convenient shell script to launch TensorBoard.
 
@@ -84,7 +213,7 @@ if self.config.log_gradient_histograms:  # Only log histograms if explicitly ena
 
 ---
 
-### 4. Fix: TensorBoard Gradient Logging Empty Histogram Error
+### 6. Fix: TensorBoard Gradient Logging Empty Histogram Error
 
 **Issue**: Training crashed with `ValueError: The histogram is empty, please file a bug report.`
 
@@ -105,7 +234,7 @@ if self.config.log_gradient_histograms:  # Only log histograms if explicitly ena
 
 ---
 
-### 5. Added: Inference Script for Finetuned Model
+### 7. Added: Inference Script for Finetuned Model
 
 **New File**: `inference.py` - Comprehensive inference script for using the finetuned E5 model.
 
