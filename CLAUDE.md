@@ -8,3 +8,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - If directory "docs" not exists, create one and create UPDATE.md.
 - Since updates will be stacked, be as concise as possible.
 - If there are updates occurring within same dates, aggregate them into one so that the viewers can see update notes per day.
+
+## Pull Request
+- Write PR description file in tmp folder and use it for notes on PR

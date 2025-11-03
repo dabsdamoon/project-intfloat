@@ -69,3 +69,6 @@ Thumbs.db
 # Runs
 logs/
 models/
+
+# PR
+tmp/
