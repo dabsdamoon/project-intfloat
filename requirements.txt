@@ -17,8 +17,16 @@ pandas>=2.0.0
 # Logging and monitoring
 tensorboard>=2.14.0
 
-# Database for RAG
-chromadb>=0.4.0
+# Database and demo for RAG
+chromadb
+gradio
+
+# PDF processing
+PyMuPDF  # For PDF text extraction
+
+# Evaluation
+openai
+python-dotenv
 
 # Development tools
 ipdb>=0.13.13
