@@ -6,7 +6,9 @@
       "Bash(cat:*)",
       "Bash(tree:*)",
       "Bash(echo:*)",
-      "Bash(powershell.exe:*)"
+      "Bash(powershell.exe:*)",
+      "Bash(mkdir:*)",
+      "Bash(chmod:*)"
     ],
     "deny": [],
     "ask": []

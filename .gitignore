@@ -70,5 +70,8 @@ Thumbs.db
 logs/
 models/
 
+# ChromaDB
+chroma_db/
+
 # PR
 tmp/
