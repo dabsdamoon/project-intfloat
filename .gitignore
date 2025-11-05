@@ -54,6 +54,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.conda/
 
 # IDEs
 .vscode/
@@ -75,3 +76,6 @@ chroma_db/
 
 # PR
 tmp/
+
+# Submission
+submission/finetuned_model_*
